@@ -1,7 +1,9 @@
 """YOLO_v3 Model Defined in Keras."""
 
 from functools import wraps
-
+import os
+import sys
+from functools import reduce
 import numpy as np
 import tensorflow as tf
 from keras import backend as K
@@ -11,7 +13,17 @@ from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.regularizers import l2
 
-from yolo3.utils import compose
+
+def compose(*funcs):
+    """Compose arbitrarily many functions, evaluated left to right.
+
+    Reference: https://mathieularose.com/function-composition-in-python/
+    """
+    # return lambda x: reduce(lambda v, f: f(v), funcs, x)
+    if funcs:
+        return reduce(lambda f, g: lambda *a, **kw: g(f(*a, **kw)), funcs)
+    else:
+        raise ValueError('Composition of empty sequence not supported.')
 
 
 @wraps(Conv2D)
