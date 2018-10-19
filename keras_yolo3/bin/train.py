@@ -4,6 +4,8 @@ Retrain the YOLO model for your own dataset.
 
 import os
 import sys
+import h5py
+import argparse
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 
@@ -12,20 +14,63 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
     __package__ = "keras_yolo3.bin"
 
+from ..yolo3.utils import read_classes, create_model, create_tiny_model, data_generator_wrapper_hdf5, make_dir
+from ..yolo3 import get_yolo3_anchors
 
-from ..yolo3.utils import get_classes, get_anchors, create_model, create_tiny_model, data_generator_wrapper_hdf5
+
+def check_args(parsed_args):
+    """
+    Function to check for inherent contradictions within parsed arguments.
+    For example, batch_size < num_gpus
+    Intended to raise errors prior to backend initialisation.
+
+    :param parsed_args: parser.parse_args()
+    :return: parsed_args
+    """
+
+    if parsed_args.weights is None:
+        raise ValueError("missing weights file!")
+
+    return parsed_args
 
 
-def _main():
-    annotation_path = 'train.txt'
-    log_dir = 'D:/Documents/3dsMax/renderoutput/yolo'
-    classes_path = '../model_data/villeroy_classes.txt'
-    anchors_path = '../model_data/yolo_anchors.txt'
-    train_hdf5_file_path = 'G:/Documents/3dsMax/renderoutput/arnold2/data.arnold.26K.h5'
-    val_hdf5_file_path = 'G:/Documents/3dsMax/renderoutput/arnold/data.arnold.h5'
-    class_names = get_classes(classes_path)
+def parse_args(args):
+    parser = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
+
+    parser.add_argument('--annotations', help='Path to h5 file containing annotations for training.')
+    parser.add_argument('--classes', help='Path to a h5 file containing class label mapping.')
+    parser.add_argument('--val-annotations',
+                           help='Path to h5 file containing annotations for validation (optional).')
+
+    parser.add_argument('--snapshot', help='Resume training from a snapshot.')
+    parser.add_argument('--weights', help='Initialize the model with weights from a file.')
+
+    parser.add_argument('--batch-size', help='Size of the batches.', default=1, type=int)
+    parser.add_argument('--gpu', help='Id of the GPU to use (as reported by nvidia-smi).')
+    parser.add_argument('--multi-gpu', help='Number of GPUs to use for parallel processing.', type=int, default=0)
+    parser.add_argument('--multi-gpu-force', help='Extra flag needed to enable (experimental) multi-gpu support.',
+                        action='store_true')
+    parser.add_argument('--epochs', help='Number of epochs to train.', type=int, default=50)
+    parser.add_argument('--snapshot-path', help='Path to store snapshots of models during training (defaults to \'./snapshots\')',
+                        default='./snapshots')
+    parser.add_argument('--tensorboard-dir', help='Log directory for Tensorboard output', default='./logs')
+
+    return check_args(parser.parse_args(args))
+
+
+def main(args=None):
+    # parse arguments
+    if args is None:
+        args = sys.argv[1:]
+    args = parse_args(args)
+    classes_path = args.classes
+    train_hdf5_file_path = args.annotations
+    val_hdf5_file_path = args.val_annotations
+    class_names = read_classes(classes_path)
     num_classes = len(class_names)
-    anchors = get_anchors(anchors_path)
+    anchors = get_yolo3_anchors()
+
+    logging, checkpoint = None, None
 
     input_shape = (416, 416)  # multiple of 32, hw
 
@@ -33,26 +78,26 @@ def _main():
     if is_tiny_version:
         model = create_tiny_model(input_shape, anchors, num_classes,
                                   freeze_body=2,
-                                  weights_path='D:/Documents/keras-yolo3/model_data/tiny_yolo_weights.h5')
+                                  weights_path=args.weights)
     else:
         model = create_model(input_shape, anchors, num_classes,
                              freeze_body=2,
-                             weights_path='../model_data/yolo_weights.h5')  # make sure you know what you freeze
-
-    logging = TensorBoard(log_dir=log_dir)
-    checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
-                                 monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
+                             weights_path=args.weights)  # make sure you know what you freeze
+    if args.tensorboard_dir and not args.tensorboard_dir == "":
+        make_dir(args.tensorboard_dir)
+        logging = TensorBoard(log_dir=args.tensorboard_dir)
+    if args.snapshot_path and not args.snapshot_path == "":
+        make_dir(args.snapshot_path)
+        checkpoint = ModelCheckpoint(os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
+                                     monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
 
-    val_split = 0.1
-    # with open(annotation_path) as f:
-    #    lines = f.readlines()
-    # np.random.seed(10101)
-    # np.random.shuffle(lines)
-    # np.random.seed(None)
-    num_val = 1123
-    num_train = 231255
+    train_hdf5_dataset = h5py.File(train_hdf5_file_path, 'r')
+    train_dataset_size = len(train_hdf5_dataset['images'])
+
+    val_hdf5_dataset = h5py.File(val_hdf5_file_path, 'r')
+    val_dataset_size = len(train_hdf5_dataset['images'])
 
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
@@ -61,18 +106,20 @@ def _main():
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
-        batch_size = 4
-        print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
+        batch_size = args.batch_size
+        print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size,
+                                                                                   batch_size))
         model.fit_generator(
-            data_generator_wrapper_hdf5(train_hdf5_file_path, batch_size, input_shape, anchors, num_classes),
-            steps_per_epoch=max(1, num_train // batch_size),
-            validation_data=data_generator_wrapper_hdf5(val_hdf5_file_path, batch_size, input_shape, anchors,
+            data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors, num_classes),
+            steps_per_epoch=max(1, train_dataset_size // batch_size),
+            validation_data=data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size, input_shape, anchors,
                                                         num_classes),
-            validation_steps=max(1, num_val // batch_size),
+            validation_steps=max(1, val_dataset_size // batch_size),
             epochs=50,
             initial_epoch=0,
             callbacks=[logging, checkpoint])
-        model.save_weights(log_dir + 'trained_weights_stage_1.h5')
+        if args.tensorboard_dir:
+            model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_stage_1.h5'))
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
@@ -83,20 +130,22 @@ def _main():
                       loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
-        batch_size = 32  # note that more GPU memory is required after unfreezing the body
-        print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
+        batch_size = args.batch_size
+        print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size, batch_size))
         model.fit_generator(
-            data_generator_wrapper_hdf5(train_hdf5_file_path, batch_size, input_shape, anchors, num_classes),
-            steps_per_epoch=max(1, num_train // batch_size),
-            validation_data=data_generator_wrapper_hdf5(val_hdf5_file_path, batch_size, input_shape, anchors,
+            data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors, num_classes),
+            steps_per_epoch=max(1, train_dataset_size // batch_size),
+            validation_data=data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size, input_shape, anchors,
                                                         num_classes),
-            validation_steps=max(1, num_val // batch_size),
-            epochs=100,
+            validation_steps=max(1, val_dataset_size // batch_size),
+            epochs=args.epochs-50,
             initial_epoch=50,
             callbacks=[logging, checkpoint, reduce_lr, early_stopping])
-        model.save_weights(log_dir + 'trained_weights_final.h5')
+        if args.tensorboard_dir:
+            model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_final.h5'))
 
     # Further training if needed.
 
+
 if __name__ == '__main__':
-    _main()
+    main()

@@ -1,11 +1,11 @@
 """Miscellaneous utility functions."""
-import h5py
 
 import keras.backend as K
 from keras.layers import Input, Lambda
 from keras.models import Model
 from PIL import Image
 import numpy as np
+import csv
 import os
 import sys
 from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
@@ -14,6 +14,28 @@ from tqdm import tqdm, trange
 from .model import preprocess_true_boxes, yolo_body, tiny_yolo_body, yolo_loss
 
 
+def make_dir(dir_path):
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+
+
+def read_classes(file_name):
+    file = open(file_name, 'r')
+    csv_reader = csv.reader(file, delimiter=',')
+    result = {}
+    for line, row in enumerate(csv_reader):
+        line += 1
+
+        try:
+            class_name, class_id = row
+        except ValueError:
+            raise (ValueError('line {}: format should be \'class_name,class_id\''.format(line)), None)
+        class_id = int(class_id)
+
+        if class_name in result:
+            raise ValueError('line {}: duplicate class name: \'{}\''.format(line, class_name))
+        result[class_name] = class_id
+    return result
 
 
 def letterbox_image(image, size):
@@ -265,9 +287,7 @@ def data_generator_wrapper(annotation_lines, batch_size, input_shape, anchors, n
     return data_generator(annotation_lines, batch_size, input_shape, anchors, num_classes)
 
 
-def data_generator_wrapper_hdf5(hdf5_file, batch_size, input_shape, anchors, num_classes):
-    hdf5_dataset = h5py.File(hdf5_file, 'r')
-    dataset_size = len(hdf5_dataset['images'])
+def data_generator_wrapper_hdf5(hdf5_dataset, dataset_size, batch_size, input_shape, anchors, num_classes):
     if dataset_size == 0 or batch_size <= 0: return None
     return data_generator_hdf5(hdf5_dataset, batch_size, input_shape, anchors, num_classes)
 
@@ -276,11 +296,13 @@ def load_annotations(image_index, labels):
     annots = labels[image_index]
     boxes = np.zeros((len(annots), 5))
 
+    if annots[0][0] == 0:
+        return np.zeros((0, 5))
     for idx, annot in enumerate(annots):
         boxes[idx, 0] = float(annot[1])
         boxes[idx, 1] = float(annot[2])
         boxes[idx, 2] = float(annot[3])
         boxes[idx, 3] = float(annot[4])
-        boxes[idx, 4] = annot[0]
+        boxes[idx, 4] = annot[0] - 1
 
     return boxes
