@@ -9,13 +9,8 @@ import argparse
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 
-# Allow relative imports when being executed as script.
-if __name__ == "__main__" and __package__ is None:
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    __package__ = "keras_yolo3.bin"
-
-from ..yolo3.utils import read_classes, create_model, create_tiny_model, data_generator_wrapper_hdf5, make_dir
-from ..yolo3 import get_yolo3_anchors
+from keras_yolo3.yolo3.utils import read_classes, create_model, create_tiny_model, data_generator_wrapper_hdf5, make_dir
+from keras_yolo3.yolo3 import get_yolo3_anchors
 
 
 def check_args(parsed_args):
