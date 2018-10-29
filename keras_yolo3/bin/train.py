@@ -35,7 +35,7 @@ def parse_args(args):
     parser.add_argument('--annotations', help='Path to h5 file containing annotations for training.')
     parser.add_argument('--classes', help='Path to a h5 file containing class label mapping.')
     parser.add_argument('--val-annotations',
-                           help='Path to h5 file containing annotations for validation (optional).')
+                        help='Path to h5 file containing annotations for validation (optional).')
 
     parser.add_argument('--snapshot', help='Resume training from a snapshot.')
     parser.add_argument('--weights', help='Initialize the model with weights from a file.')
@@ -46,7 +46,8 @@ def parse_args(args):
     parser.add_argument('--multi-gpu-force', help='Extra flag needed to enable (experimental) multi-gpu support.',
                         action='store_true')
     parser.add_argument('--epochs', help='Number of epochs to train.', type=int, default=50)
-    parser.add_argument('--snapshot-path', help='Path to store snapshots of models during training (defaults to \'./snapshots\')',
+    parser.add_argument('--snapshot-path',
+                        help='Path to store snapshots of models during training (defaults to \'./snapshots\')',
                         default='./snapshots')
     parser.add_argument('--tensorboard-dir', help='Log directory for Tensorboard output', default='./logs')
 
@@ -83,8 +84,9 @@ def main(args=None):
         logging = TensorBoard(log_dir=args.tensorboard_dir)
     if args.snapshot_path and not args.snapshot_path == "":
         make_dir(args.snapshot_path)
-        checkpoint = ModelCheckpoint(os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
-                                     monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
+        checkpoint = ModelCheckpoint(
+            os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
+            monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
     early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
 
@@ -93,6 +95,12 @@ def main(args=None):
 
     val_hdf5_dataset = h5py.File(val_hdf5_file_path, 'r')
     val_dataset_size = len(train_hdf5_dataset['images'])
+    batch_size = args.batch_size
+    train_gen = data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors,
+                                            num_classes)
+    val_gen = data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size,
+                                          input_shape, anchors,
+                                          num_classes)
 
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
@@ -101,18 +109,15 @@ def main(args=None):
             # use custom yolo_loss Lambda layer.
             'yolo_loss': lambda y_true, y_pred: y_pred})
 
-        batch_size = args.batch_size
         print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size,
                                                                                    batch_size))
-        model.fit_generator(
-            data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors, num_classes),
-            steps_per_epoch=max(1, train_dataset_size // batch_size),
-            validation_data=data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size, input_shape, anchors,
-                                                        num_classes),
-            validation_steps=max(1, val_dataset_size // batch_size),
-            epochs=50,
-            initial_epoch=0,
-            callbacks=[logging, checkpoint])
+        model.fit_generator(train_gen,
+                            steps_per_epoch=max(1, train_dataset_size // batch_size),
+                            validation_data=val_gen,
+                            validation_steps=max(1, val_dataset_size // batch_size),
+                            epochs=50,
+                            initial_epoch=0,
+                            callbacks=[logging, checkpoint])
         if args.tensorboard_dir:
             model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_stage_1.h5'))
 
@@ -125,17 +130,15 @@ def main(args=None):
                       loss={'yolo_loss': lambda y_true, y_pred: y_pred})  # recompile to apply the change
         print('Unfreeze all of the layers.')
 
-        batch_size = args.batch_size
-        print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size, batch_size))
-        model.fit_generator(
-            data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors, num_classes),
-            steps_per_epoch=max(1, train_dataset_size // batch_size),
-            validation_data=data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size, input_shape, anchors,
-                                                        num_classes),
-            validation_steps=max(1, val_dataset_size // batch_size),
-            epochs=args.epochs-50,
-            initial_epoch=50,
-            callbacks=[logging, checkpoint, reduce_lr, early_stopping])
+        print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size,
+                                                                                   batch_size))
+        model.fit_generator(train_gen,
+                            steps_per_epoch=max(1, train_dataset_size // batch_size),
+                            validation_data=val_gen,
+                            validation_steps=max(1, val_dataset_size // batch_size),
+                            epochs=args.epochs - 50,
+                            initial_epoch=50,
+                            callbacks=[logging, checkpoint, reduce_lr, early_stopping])
         if args.tensorboard_dir:
             model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_final.h5'))
 
