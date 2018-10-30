@@ -93,14 +93,21 @@ def main(args=None):
     train_hdf5_dataset = h5py.File(train_hdf5_file_path, 'r')
     train_dataset_size = len(train_hdf5_dataset['images'])
 
-    val_hdf5_dataset = h5py.File(val_hdf5_file_path, 'r')
-    val_dataset_size = len(train_hdf5_dataset['images'])
     batch_size = args.batch_size
+
+    if os.path.isfile(val_hdf5_file_path):
+        val_hdf5_dataset = h5py.File(val_hdf5_file_path, 'r')
+        val_dataset_size = len(val_hdf5_dataset['images'])
+        val_gen = data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size,
+                                              input_shape, anchors,
+                                              num_classes)
+    else:
+        val_gen = None
+        val_dataset_size = 0
+
     train_gen = data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors,
                                             num_classes)
-    val_gen = data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size,
-                                          input_shape, anchors,
-                                          num_classes)
+
 
     # Train with frozen layers first, to get a stable loss.
     # Adjust num epochs to your dataset. This step is enough to obtain a not bad model.
