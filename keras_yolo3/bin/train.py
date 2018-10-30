@@ -95,7 +95,7 @@ def main(args=None):
 
     batch_size = args.batch_size
 
-    if os.path.isfile(val_hdf5_file_path):
+    if not val_hdf5_file_path is None and os.path.isfile(val_hdf5_file_path):
         val_hdf5_dataset = h5py.File(val_hdf5_file_path, 'r')
         val_dataset_size = len(val_hdf5_dataset['images'])
         val_gen = data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size,
