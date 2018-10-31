@@ -86,9 +86,11 @@ def main(args=None):
         make_dir(args.snapshot_path)
         checkpoint = ModelCheckpoint(
             os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
-            monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+            #monitor='val_loss',
+            #save_weights_only=True,
+            #save_best_only=True,
+            #period=3
+        )
 
     train_hdf5_dataset = h5py.File(train_hdf5_file_path, 'r')
     train_dataset_size = len(train_hdf5_dataset['images'])
@@ -101,9 +103,13 @@ def main(args=None):
         val_gen = data_generator_wrapper_hdf5(val_hdf5_dataset, val_dataset_size, batch_size,
                                               input_shape, anchors,
                                               num_classes)
+        reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
     else:
         val_gen = None
         val_dataset_size = 0
+        reduce_lr = None
+        early_stopping = None
 
     train_gen = data_generator_wrapper_hdf5(train_hdf5_dataset, train_dataset_size, batch_size, input_shape, anchors,
                                             num_classes)
