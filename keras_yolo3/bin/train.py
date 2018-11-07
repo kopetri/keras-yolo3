@@ -85,7 +85,7 @@ def main(args=None):
     if args.snapshot_path and not args.snapshot_path == "":
         make_dir(args.snapshot_path)
         checkpoint = ModelCheckpoint(
-            os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5'),
+            os.path.join(args.snapshot_path, 'ep{epoch:03d}-loss{loss:.3f}.h5'),
             #monitor='val_loss',
             #save_weights_only=True,
             #save_best_only=True,
