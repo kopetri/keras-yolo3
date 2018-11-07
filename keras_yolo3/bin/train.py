@@ -124,13 +124,18 @@ def main(args=None):
 
         print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size,
                                                                                    batch_size))
+        callbacks = []
+        if logging is not None:
+            callbacks.append(logging)
+        if checkpoint is not None:
+            callbacks.append(checkpoint)
         model.fit_generator(train_gen,
                             steps_per_epoch=max(1, train_dataset_size // batch_size),
                             validation_data=val_gen,
                             validation_steps=max(1, val_dataset_size // batch_size),
                             epochs=50,
                             initial_epoch=0,
-                            callbacks=[logging, checkpoint])
+                            callbacks=callbacks)
         if args.tensorboard_dir:
             model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_stage_1.h5'))
 
@@ -145,13 +150,22 @@ def main(args=None):
 
         print('Train on {} samples, val on {} samples, with batch size {}.'.format(train_dataset_size, val_dataset_size,
                                                                                    batch_size))
+        callbacks = []
+        if logging is not None:
+            callbacks.append(logging)
+        if checkpoint is not None:
+            callbacks.append(checkpoint)
+        if reduce_lr is not None:
+            callbacks.append(reduce_lr)
+        if early_stopping is not None:
+            callbacks.append(early_stopping)
         model.fit_generator(train_gen,
                             steps_per_epoch=max(1, train_dataset_size // batch_size),
                             validation_data=val_gen,
                             validation_steps=max(1, val_dataset_size // batch_size),
                             epochs=args.epochs - 50,
                             initial_epoch=50,
-                            callbacks=[logging, checkpoint, reduce_lr, early_stopping])
+                            callbacks=callbacks)
         if args.tensorboard_dir:
             model.save_weights(os.path.join(args.tensorboard_dir, 'trained_weights_final.h5'))
 
